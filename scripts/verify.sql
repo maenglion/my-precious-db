@@ -82,3 +82,19 @@ FROM pg_constraint
 WHERE conrelid = 'review.residual_item'::regclass
   AND contype = 'c'
 ORDER BY conname;
+-- Ticket 008
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'audit'
+ORDER BY table_name;
+
+SELECT indexname
+FROM pg_indexes
+WHERE schemaname = 'audit'
+ORDER BY indexname;
+
+SELECT conname, pg_get_constraintdef(oid)
+FROM pg_constraint
+WHERE conrelid = 'audit.event'::regclass
+  AND contype = 'c'
+ORDER BY conname;
