@@ -40,3 +40,13 @@ SELECT column_name, data_type, is_nullable
 FROM information_schema.columns
 WHERE table_schema = 'rule' AND table_name = 'expression'
 ORDER BY ordinal_position;
+-- Ticket 005
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'core'
+ORDER BY table_name;
+
+SELECT indexname
+FROM pg_indexes
+WHERE schemaname = 'core'
+ORDER BY indexname;
