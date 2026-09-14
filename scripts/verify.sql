@@ -50,3 +50,19 @@ SELECT indexname
 FROM pg_indexes
 WHERE schemaname = 'core'
 ORDER BY indexname;
+-- Ticket 006
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'assess'
+ORDER BY table_name;
+
+SELECT indexname
+FROM pg_indexes
+WHERE schemaname = 'assess'
+ORDER BY indexname;
+
+SELECT conname, pg_get_constraintdef(oid)
+FROM pg_constraint
+WHERE conrelid = 'assess.assessment'::regclass
+  AND contype = 'c'
+ORDER BY conname;
