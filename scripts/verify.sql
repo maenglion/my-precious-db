@@ -25,3 +25,18 @@ ORDER BY indexname;
 SELECT extname, extversion
 FROM pg_extension
 WHERE extname = 'ltree';
+-- Ticket 004
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'rule'
+ORDER BY table_name;
+
+SELECT indexname
+FROM pg_indexes
+WHERE schemaname = 'rule'
+ORDER BY indexname;
+
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_schema = 'rule' AND table_name = 'expression'
+ORDER BY ordinal_position;
