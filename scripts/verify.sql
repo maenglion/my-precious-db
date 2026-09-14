@@ -66,3 +66,19 @@ FROM pg_constraint
 WHERE conrelid = 'assess.assessment'::regclass
   AND contype = 'c'
 ORDER BY conname;
+-- Ticket 007
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'review'
+ORDER BY table_name;
+
+SELECT indexname
+FROM pg_indexes
+WHERE schemaname = 'review'
+ORDER BY indexname;
+
+SELECT conname, pg_get_constraintdef(oid)
+FROM pg_constraint
+WHERE conrelid = 'review.residual_item'::regclass
+  AND contype = 'c'
+ORDER BY conname;
