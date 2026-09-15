@@ -16,11 +16,12 @@ AS_OF = date(2026, 9, 15)
 def _fetch_candidates(conn):
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT candidate_type, proposed_value, status, rationale "
+            "SELECT candidate_type, proposed_value, status, rationale, "
+            "branch, growth_origin, decision_gain "
             "FROM review.ontology_candidate ORDER BY created_at"
         )
         return cur.fetchall()
-
+    
 
 def _fetch_residual_status(conn):
     with conn.cursor() as cur:
@@ -78,9 +79,14 @@ class TestPromotionAtThreshold:
         candidates = _fetch_candidates(db_conn)
         assert len(candidates) == 1
         c = candidates[0]
-        assert c["candidate_type"] == "SCOPE"
+        # DL-012: residual_type → candidate_type 자동 확정 금지
+        assert c["candidate_type"] == "NONE"
+        assert c["branch"] == "RULE"
+        assert c["growth_origin"] == "BOTTOM_UP"
+        assert c["decision_gain"] is None
         assert c["status"] == "PENDING"
         assert "PARTIAL_TEST" in c["proposed_value"]
+        assert c["rationale"].startswith("[RULE]")
 
 
 class TestPromotedStatusTransition:
@@ -210,3 +216,37 @@ class TestRuleCoverageGate:
 
         promoted = promote_residuals(db_conn, min_occurrence=3)
         assert len(promoted) == 1
+
+        # DL-012: UNMAPPED_SOURCE_TYPE → ONTOLOGY 브랜치
+        candidates = _fetch_candidates(db_conn)
+        assert len(candidates) == 1
+        c = candidates[0]
+        assert c["candidate_type"] == "NONE"
+        assert c["branch"] == "ONTOLOGY"
+        assert c["growth_origin"] == "BOTTOM_UP"
+        assert c["rationale"].startswith("[ONTOLOGY]")
+
+
+class TestBranchDiagnosis:
+    """DL-012: residual_type은 증상, candidate_type은 진단 (자동 확정 금지)."""
+
+    def test_rule_coverage_yields_rule_branch_none_type(
+        self, db_conn, seeded
+    ):
+        fac = _make_facility_with_partial_scope(db_conn)
+        for _ in range(3):
+            run_assessment(db_conn, fac, AS_OF, persist=True)
+
+        promote_residuals(db_conn, min_occurrence=3)
+        c = _fetch_candidates(db_conn)[0]
+        assert c["branch"] == "RULE"
+        assert c["candidate_type"] == "NONE"
+
+    def test_growth_origin_is_bottom_up(self, db_conn, seeded):
+        fac = _make_facility_with_partial_scope(db_conn)
+        for _ in range(3):
+            run_assessment(db_conn, fac, AS_OF, persist=True)
+
+        promote_residuals(db_conn, min_occurrence=3)
+        c = _fetch_candidates(db_conn)[0]
+        assert c["growth_origin"] == "BOTTOM_UP"

@@ -1,4 +1,4 @@
-"""Residual → ontology candidate 승격 (v0.2 §12.3 + §14.2 + DL-010).
+"""Residual → ontology candidate 승격 (v0.2 §12.3 + §14.2 + DL-010 + DL-012).
 
 승격 조건:
     1. residual_type IN ('UNMAPPED_SOURCE_TYPE', 'RULE_COVERAGE')
@@ -7,8 +7,11 @@
     4. 아직 ontology_candidate에 등록되지 않음
     5. DL-010: RULE_COVERAGE는 source/parser/version 문제가 아닐 때만
 
-AI는 여기서 개입하지 않는다. 규칙 기반 승격이다.
-LLM 후보 생성은 별도 티켓 (Ollama).
+DL-012:
+    - residual_type은 "증상", candidate_type은 "진단".
+      자동 확정 금지. promotion은 브랜치 태깅까지만.
+    - LLM 후보 생성은 별도 파이프라인 (candidate.py).
+    - 자동 승격 금지 원칙 (v0.2 §13.4).
 """
 
 from __future__ import annotations
@@ -24,11 +27,17 @@ CANDIDATE_MIN_OCCURRENCE = int(
 # ontology 후보로 승격 가능한 residual_type (v0.2 §12.3)
 PROMOTABLE_TYPES = frozenset({"UNMAPPED_SOURCE_TYPE", "RULE_COVERAGE"})
 
-# residual_type → candidate_type 매핑
-_CANDIDATE_TYPE_MAP = {
-    "UNMAPPED_SOURCE_TYPE": "CLASS",
-    "RULE_COVERAGE": "SCOPE",
+# DL-012: residual_type → 진단 브랜치 (candidate_type은 확정하지 않음)
+# UNMAPPED_SOURCE_TYPE → ONTOLOGY 브랜치 (alias/mapping/class/scope 중 미정)
+# RULE_COVERAGE        → RULE 브랜치 (rule gap/threshold/exclusion 중 미정)
+_BRANCH_MAP = {
+    "UNMAPPED_SOURCE_TYPE": "ONTOLOGY",
+    "RULE_COVERAGE": "RULE",
 }
+
+# DL-012: 규칙 기반 승격 단계에서는 candidate_type 미확정 → NONE
+# 사람/LLM 진단 후 갱신.
+_PLACEHOLDER_CANDIDATE_TYPE = "NONE"
 
 # DL-010: RULE_COVERAGE 승격 시 함께 확인해야 할 conflict 타입
 _RULE_COVERAGE_CONFLICTS = (
@@ -43,10 +52,13 @@ def promote_residuals(
     *,
     min_occurrence: int | None = None,
 ) -> list[str]:
-    """승격 조건을 만족하는 residual을 ontology_candidate로 옮긴다.
+    """승격 조건을 만족하는 residual을 ontology_candidate로 등록.
+
+    DL-012: 브랜치만 태깅. candidate_type은 'NONE' (미정).
+    growth_origin = 'BOTTOM_UP' (residual 경로).
 
     Returns:
-        새로 생성된 candidate_id 리스트
+        새로 생성된 candidate_id 리스트.
     """
     min_occ = (
         min_occurrence if min_occurrence is not None
@@ -74,11 +86,11 @@ def promote_residuals(
 
         new_candidate_ids: list[str] = []
         for r in rows:
-            candidate_type = _CANDIDATE_TYPE_MAP.get(r["residual_type"])
-            if candidate_type is None:
+            branch = _BRANCH_MAP.get(r["residual_type"])
+            if branch is None:
                 continue
 
-            # DL-010: RULE_COVERAGE는 source/parser/version 문제 시 승격하지 않음
+            # DL-010: RULE_COVERAGE는 source/parser/version 문제 시 승격 안 함
             if r["residual_type"] == "RULE_COVERAGE":
                 facility_id = (
                     str(r["facility_id"]) if r.get("facility_id") else None
@@ -92,18 +104,20 @@ def promote_residuals(
 
             proposed_value = _proposed_value(r)
             parent_value = _parent_value(r)
-            rationale = _rationale(r)
+            rationale = _rationale(r, branch)
 
             cur.execute(
                 """
                 INSERT INTO review.ontology_candidate
                     (residual_id, candidate_type, proposed_value,
-                     parent_value, rationale, status)
-                VALUES (%s, %s, %s, %s, %s, 'PENDING')
+                     parent_value, rationale, status,
+                     branch, growth_origin, decision_gain)
+                VALUES (%s, %s, %s, %s, %s, 'PENDING',
+                        %s, 'BOTTOM_UP', NULL)
                 RETURNING candidate_id
                 """,
-                (r["residual_id"], candidate_type, proposed_value,
-                 parent_value, rationale),
+                (r["residual_id"], _PLACEHOLDER_CANDIDATE_TYPE,
+                 proposed_value, parent_value, rationale, branch),
             )
             new_candidate_ids.append(str(cur.fetchone()["candidate_id"]))
 
@@ -126,10 +140,10 @@ def _has_conflicting_residual(
     *,
     conflict_types: tuple[str, ...],
 ) -> bool:
-    """같은 facility에 대해 특정 residual_type이 ACCUMULATING 상태로 있나.
+    """같은 facility에 다음 특정 residual_type이 ACCUMULATING 상태로 있나.
 
     DL-010: RULE_COVERAGE 승격 gate.
-    source/parser/version 문제가 있으면 RULE_COVERAGE는 ontology 부족이 아니다.
+    source/parser/version 문제가 있으면 RULE_COVERAGE는 ontology 문제가 아님.
     """
     if facility_id is None:
         return False
@@ -164,9 +178,10 @@ def _parent_value(row: dict) -> str | None:
     return details.get("scope_key")
 
 
-def _rationale(row: dict) -> str:
+def _rationale(row: dict, branch: str) -> str:
+    """DL-012: 브랜치 태그와 원 증상 정보를 함께 남긴다."""
     return (
-        f"residual_type={row['residual_type']}, "
+        f"[{branch}] residual_type={row['residual_type']}, "
         f"occurrence_count={row['occurrence_count']}, "
         f"signature={row['signature']}"
     )
