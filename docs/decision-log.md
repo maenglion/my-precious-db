@@ -149,3 +149,50 @@ loader는 `sort_order`만, eval은 `(sort_order, expr_id)`.
 - [x] pytest 총 **151 passed**
 
 **다음:** Phase 7 — Residual 파이프라인.
+
+## DL-007 — 파이프라인 우선, 법령 corpus는 어댑터로
+
+**배경:** ADOMS는 실제 법령을 만나며 5년간 스키마를 재설계했다.
+jungche는 v0.2/v0.3 설계안에 그 시행착오의 결론이 이미 압축되어 있다.
+
+**결정:** 순서를 뒤집는다.
+- ADOMS: 법령 → 시행착오 → 설계
+- jungche: 설계 → 파이프라인 → 법령 (어댑터로)
+
+**이유:**
+- Phase 6 (Assessment)은 법령 없이도 T01~T09로 검증 가능
+- 엔진 계층이 굳어야 law adapter가 뭘 넣어야 하는지 명확해짐
+- ADOMS corpus는 adapter로 가져옴 (v0.3 §0-A2)
+
+**감수하는 리스크:**
+- 법령 원문 자체의 지저분함(별표, "다만 ~ 제외")이
+  설계에 반영 안 됐을 수 있음
+- → 어댑터 붙일 때 드러남. 그때 DL로 기록.
+
+**대가:** ADOMS가 겪은 중간 단계를 우리는 건너뛴다.
+장점: 그 5년을 안 산다. 단점: 그 5년이 준 직관을 놓친다.
+
+**검증 상태 (2026-09-15):**
+- Assessment engine 완성
+- T01~T09 integration 100% PASS
+- residual 생성 경로 검증 (MISSING_FACT, RULE_COVERAGE)
+- pytest 총 154 passed
+
+---
+
+## DL-008 — Residual signature 설계
+
+**문제:** 같은 원인의 residual이 매번 새 row가 되면 클러스터링 불가.
+`occurrence_count` 누적이 안 됨.
+
+**현재 구현 (013d):**
+- `signature = f"scope:{scope_key}:{reason}"` — 결정적 문자열
+- 매번 새 row INSERT (누적 로직 아직 없음)
+
+**다음 (013e):**
+- signature 기반 UPSERT — 같은 signature면 `occurrence_count += 1`, `last_seen_at` 갱신
+- `pg_trgm similarity`로 유사 signature 클러스터링
+- `candidate_min_occurrence = 3` config (v0.2 §14.2)
+
+**대가:** signature 생성 규칙이 residual_type별로 달라야 함.
+지금은 scope 실패만. MISSING_FACT/PARSER 등은 별도 규칙 필요.
