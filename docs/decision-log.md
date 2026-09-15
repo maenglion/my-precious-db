@@ -274,18 +274,16 @@ jungche는 v0.2/v0.3 설계안에 그 시행착오의 결론이 이미 압축되
 - 다음 티켓 후보: 013h (RULE_COVERAGE 정교화), 또는 실제 데이터 들어온 뒤
 
 
+
 **해결 (Ticket 013i, 2026-09-16):**
-`src/review/promotion.py`의 `promote_residuals`에 gate 추가.
+`promote_residuals`에 gate 추가:
 - `_has_conflicting_residual(conn, facility_id, conflict_types=...)` 헬퍼
 - `RULE_COVERAGE` 승격 전 같은 facility에 대해 확인:
-  - `PARSER`
-  - `LAW_VERSION_CONFLICT`
-  - `SOURCE_CONFLICT`
+  - `PARSER` / `LAW_VERSION_CONFLICT` / `SOURCE_CONFLICT`
 - 위 중 하나라도 `ACCUMULATING` 상태면 승격 skip
-- `UNMAPPED_SOURCE_TYPE`은 gate 없음 (기존 규칙 유지)
+- `UNMAPPED_SOURCE_TYPE`은 gate 없음
+- 회귀 테스트 4개 (`TestRuleCoverageGate`)
+---
 
-**회귀 테스트 4개 추가:**
-- `test_rule_coverage_promoted_when_no_conflict`
-- `test_rule_coverage_blocked_by_parser_residual`
-- `test_rule_coverage_blocked_by_law_version_conflict`
-- `test_other_promotable_types_not_gated`
+
+
