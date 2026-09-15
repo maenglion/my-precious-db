@@ -129,3 +129,84 @@ def _make_facility_with_partial_scope(conn):
         )
     conn.commit()
     return fac_id
+
+
+
+class TestRuleCoverageGate:
+    """DL-010: RULE_COVERAGE는 source/parser/version 문제 시 승격 안 됨."""
+
+    def test_rule_coverage_promoted_when_no_conflict(self, db_conn, seeded):
+        fac = _make_facility_with_partial_scope(db_conn)
+        for _ in range(3):
+            run_assessment(db_conn, fac, AS_OF, persist=True)
+
+        promoted = promote_residuals(db_conn, min_occurrence=3)
+        assert len(promoted) == 1
+
+    def test_rule_coverage_blocked_by_parser_residual(self, db_conn, seeded):
+        fac = _make_facility_with_partial_scope(db_conn)
+        for _ in range(3):
+            run_assessment(db_conn, fac, AS_OF, persist=True)
+
+        with db_conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO review.residual_item
+                    (facility_id, residual_type, signature, status)
+                VALUES (%s, 'PARSER', 'parser:test', 'ACCUMULATING')
+                """,
+                (fac,),
+            )
+        db_conn.commit()
+
+        promoted = promote_residuals(db_conn, min_occurrence=3)
+        assert promoted == []
+
+    def test_rule_coverage_blocked_by_law_version_conflict(self, db_conn, seeded):
+        fac = _make_facility_with_partial_scope(db_conn)
+        for _ in range(3):
+            run_assessment(db_conn, fac, AS_OF, persist=True)
+
+        with db_conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO review.residual_item
+                    (facility_id, residual_type, signature, status)
+                VALUES (%s, 'LAW_VERSION_CONFLICT', 'lawver:test', 'ACCUMULATING')
+                """,
+                (fac,),
+            )
+        db_conn.commit()
+
+        promoted = promote_residuals(db_conn, min_occurrence=3)
+        assert promoted == []
+
+    def test_other_promotable_types_not_gated(self, db_conn, seeded):
+        fac = _make_facility_with_partial_scope(db_conn)
+
+        with db_conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO review.residual_item
+                    (facility_id, residual_type, signature,
+                     occurrence_count, status)
+                VALUES (%s, 'UNMAPPED_SOURCE_TYPE', 'unmapped:test',
+                        3, 'ACCUMULATING')
+                """,
+                (fac,),
+            )
+        db_conn.commit()
+
+        with db_conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO review.residual_item
+                    (facility_id, residual_type, signature, status)
+                VALUES (%s, 'PARSER', 'parser:test', 'ACCUMULATING')
+                """,
+                (fac,),
+            )
+        db_conn.commit()
+
+        promoted = promote_residuals(db_conn, min_occurrence=3)
+        assert len(promoted) == 1

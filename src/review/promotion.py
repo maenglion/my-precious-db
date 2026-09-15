@@ -1,12 +1,13 @@
-"""Residual → ontology candidate 승격 (v0.2 §12.3 + §14.2).
+"""Residual → ontology candidate 승격 (v0.2 §12.3 + §14.2 + DL-010).
 
 승격 조건:
     1. residual_type IN ('UNMAPPED_SOURCE_TYPE', 'RULE_COVERAGE')
     2. occurrence_count >= CANDIDATE_MIN_OCCURRENCE (기본 3)
     3. status = 'ACCUMULATING'
     4. 아직 ontology_candidate에 등록되지 않음
+    5. DL-010: RULE_COVERAGE는 source/parser/version 문제가 아닐 때만
 
-AI는 여기서 개입하지 않는다. 이건 규칙 기반 승격이다.
+AI는 여기서 개입하지 않는다. 규칙 기반 승격이다.
 LLM 후보 생성은 별도 티켓 (Ollama).
 """
 
@@ -15,7 +16,6 @@ from __future__ import annotations
 import os
 
 import psycopg
-from psycopg.types.json import Jsonb
 
 CANDIDATE_MIN_OCCURRENCE = int(
     os.environ.get("CANDIDATE_MIN_OCCURRENCE", "3")
@@ -29,6 +29,13 @@ _CANDIDATE_TYPE_MAP = {
     "UNMAPPED_SOURCE_TYPE": "CLASS",
     "RULE_COVERAGE": "SCOPE",
 }
+
+# DL-010: RULE_COVERAGE 승격 시 함께 확인해야 할 conflict 타입
+_RULE_COVERAGE_CONFLICTS = (
+    "PARSER",
+    "LAW_VERSION_CONFLICT",
+    "SOURCE_CONFLICT",
+)
 
 
 def promote_residuals(
@@ -47,11 +54,10 @@ def promote_residuals(
     )
 
     with conn.cursor() as cur:
-        # 승격 대상 residual 조회
         cur.execute(
             """
-            SELECT r.residual_id, r.residual_type, r.signature,
-                   r.occurrence_count, r.details
+            SELECT r.residual_id, r.facility_id, r.residual_type,
+                   r.signature, r.occurrence_count, r.details
             FROM review.residual_item r
             WHERE r.residual_type = ANY(%s)
               AND r.occurrence_count >= %s
@@ -72,6 +78,18 @@ def promote_residuals(
             if candidate_type is None:
                 continue
 
+            # DL-010: RULE_COVERAGE는 source/parser/version 문제 시 승격하지 않음
+            if r["residual_type"] == "RULE_COVERAGE":
+                facility_id = (
+                    str(r["facility_id"]) if r.get("facility_id") else None
+                )
+                if _has_conflicting_residual(
+                    conn,
+                    facility_id,
+                    conflict_types=_RULE_COVERAGE_CONFLICTS,
+                ):
+                    continue
+
             proposed_value = _proposed_value(r)
             parent_value = _parent_value(r)
             rationale = _rationale(r)
@@ -89,7 +107,6 @@ def promote_residuals(
             )
             new_candidate_ids.append(str(cur.fetchone()["candidate_id"]))
 
-            # residual 상태 전환
             cur.execute(
                 """
                 UPDATE review.residual_item
@@ -101,6 +118,35 @@ def promote_residuals(
 
     conn.commit()
     return new_candidate_ids
+
+
+def _has_conflicting_residual(
+    conn: psycopg.Connection,
+    facility_id: str | None,
+    *,
+    conflict_types: tuple[str, ...],
+) -> bool:
+    """같은 facility에 대해 특정 residual_type이 ACCUMULATING 상태로 있나.
+
+    DL-010: RULE_COVERAGE 승격 gate.
+    source/parser/version 문제가 있으면 RULE_COVERAGE는 ontology 부족이 아니다.
+    """
+    if facility_id is None:
+        return False
+    if not conflict_types:
+        return False
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT 1 FROM review.residual_item
+            WHERE facility_id = %s
+              AND residual_type = ANY(%s)
+              AND status = 'ACCUMULATING'
+            LIMIT 1
+            """,
+            (facility_id, list(conflict_types)),
+        )
+        return cur.fetchone() is not None
 
 
 def _proposed_value(row: dict) -> str:
