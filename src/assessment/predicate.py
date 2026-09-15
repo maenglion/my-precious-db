@@ -3,8 +3,7 @@
 fact_key / operator / compare_value 로 개별 조건을 평가.
 fact가 없으면 UNKNOWN (v0.2 9장).
 
-operator:
-    =, !=, >, >=, <, <=
+operator: =, !=, >, >=, <, <=
 """
 
 from __future__ import annotations
@@ -27,16 +26,22 @@ def evaluate_predicate(
     predicate: Predicate,
     facts: dict[str, Any],
 ) -> TruthValue:
-    """fact_key가 facts에 없으면 UNKNOWN.
+    """fact_key가 facts에 없거나 None이면 UNKNOWN.
 
-    value_json이 리스트/딕셔너리면 그대로 비교.
-    타입 미스매치는 UNKNOWN.
+    bool <-> number 혼용은 UNKNOWN (값 오염 방지).
     """
     if predicate.fact_key not in facts:
         return TruthValue.UNKNOWN
 
     actual = facts[predicate.fact_key]
+    if actual is None:
+        return TruthValue.UNKNOWN
+
     expected = predicate.compare_value
+
+    # bool <-> number 혼용 거부
+    if isinstance(actual, bool) != isinstance(expected, bool):
+        return TruthValue.UNKNOWN
 
     try:
         return _apply(predicate.operator, actual, expected)
