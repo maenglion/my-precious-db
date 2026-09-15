@@ -20,6 +20,7 @@ from datetime import date
 from typing import Any
 
 import psycopg
+from psycopg.types.json import Jsonb 
 
 from src.assessment.expression import Node, evaluate_tree_with_trace
 from src.assessment.loader import LoadedRule, rows_to_tree
@@ -257,8 +258,8 @@ def _persist_assessment(
                     (rule_eval_id,
                      pe.expr_id,
                      pe.fact_id,
-                     pe.actual_value,
-                     pe.expected_value,
+                     Jsonb(pe.actual_value),
+                     Jsonb(pe.expected_value),
                      pe.operator,
                      pe.result.value,
                      pe.reason),
@@ -284,8 +285,8 @@ def _persist_residual(
         cur.execute(
             """
             INSERT INTO review.residual_item
-                (facility_id, assessment_id, residual_type,
-                 signature, details, status)
+                (facility_id, outcome.assessment_id, residual_type,
+             signature, Jsonb(details)),
             VALUES (%s, %s, %s, %s, %s, 'ACCUMULATING')
             RETURNING residual_id
             """,
