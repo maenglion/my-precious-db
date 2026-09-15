@@ -124,3 +124,21 @@ SELECT indexname
 FROM pg_indexes
 WHERE schemaname = 'rule'
 ORDER BY indexname;
+
+
+-- Ticket 013f
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'review'
+ORDER BY table_name;
+
+SELECT conname, pg_get_constraintdef(oid)
+FROM pg_constraint
+WHERE conrelid = 'review.ontology_candidate'::regclass
+  AND contype = 'c'
+ORDER BY conname;
+
+SELECT indexname
+FROM pg_indexes
+WHERE schemaname = 'review'
+ORDER BY indexname;
