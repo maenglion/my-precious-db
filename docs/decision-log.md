@@ -285,5 +285,59 @@ jungche는 v0.2/v0.3 설계안에 그 시행착오의 결론이 이미 압축되
 - 회귀 테스트 4개 (`TestRuleCoverageGate`)
 ---
 
+## DL-011: Ollama 연동 스코프 & 모델 선택 (Phase 9 진입)
 
+**Date**: 2026-09-16
+**Status**: Accepted
+**Context**: v0.2 §24 Phase 9. residual cluster 자동 분류를 위해
+로컬 LLM 필요. Phase 2/3(Law Adapter)은 DL-007에 따라 defer.
 
+**Decisions**:
+1. 모델: `qwen3:8b` (로컬 확인, 5.2GB, ollama 0.34.0)
+2. API: `/api/chat` (system/user 역할 분리)
+3. 출력: JSON 강제 (`format: "json"`)
+4. **thinking mode 비활성화**: `think: false`
+   — Qwen3 기본 thinking이 JSON 파싱 방해
+5. 클라이언트: httpx sync
+6. 타임아웃 60s, 재시도 1회
+7. 후보는 DB 직행 금지 — 사람 검수 큐 경유 (v0.2 §13.4)
+8. 판정 엔진 import 금지 — Ollama 죽어도 판정 무영향 (v0.2 §15)
+
+**Consequences**:
+- 013j: client.py 골격 + 단일 호출 성공
+- 013k: cluster → prompt → candidate 저장
+- 013l: 실패 격리 테스트
+
+**Related**: DL-007, v0.2 §13.4, §15, §24
+
+## DL-012: Branch Diagnosis & Growth Origin
+
+**Date**: 2026-09-16
+**Status**: Accepted
+**Context**: Phase 9 후속. `promotion.py`가 residual_type →
+candidate_type을 자동 확정 (UNMAPPED_SOURCE_TYPE→CLASS,
+RULE_COVERAGE→SCOPE)하여 클래스 폭발 위험. 네 통찰:
+조문 성장은 위/아래층에서 원인이 다름.
+
+**Decisions**:
+1. residual_type은 "증상", candidate_type은 "진단".
+   자동 확정 금지.
+2. candidate_type = {ALIAS, MAPPING, CLASS, SCOPE, NONE}
+   — 비용 순서대로 ALIAS < MAPPING < CLASS < SCOPE.
+   싼 것으로 해결 가능하면 비싼 것으로 승격 금지.
+3. `NO_ONTOLOGY_CHANGE` 공식 허용. AI가 "새로 만들지 마"
+   라고 답할 권리를 프롬프트 스키마에 명시.
+4. 승격 gate = 반복성 + 판정 가치(decision_gain).
+   - 분리 시 다른 rule set / EXCLUDE / threshold / scope 적용?
+   - 전부 NO면 alias/mapping으로 종결.
+5. growth_origin = {TOP_DOWN, BOTTOM_UP}.
+   - BOTTOM_UP: residual 경로 (현장·사고·집행)
+   - TOP_DOWN: 법령 개정 diff 경로 (Phase 2/3 이후)
+6. 92-class 선제 확정 금지. backbone + 자가확장.
+
+**Consequences**:
+- 013L: Branch Diagnosis 구현 (아래 스코프)
+- Phase 2/3 Law Adapter: law diff → TOP_DOWN 후보 경로 신설
+- promotion.py 자동 확정 로직 제거
+
+**Related**: DL-007, DL-011, v0.2 §13.4, §14, §24
