@@ -98,3 +98,29 @@ FROM pg_constraint
 WHERE conrelid = 'audit.event'::regclass
   AND contype = 'c'
 ORDER BY conname;
+-- Ticket 013a
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'rule'
+ORDER BY table_name;
+
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_schema = 'rule' AND table_name = 'scope'
+ORDER BY ordinal_position;
+
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_schema = 'rule' AND table_name = 'rule'
+ORDER BY ordinal_position;
+
+SELECT conname, pg_get_constraintdef(oid)
+FROM pg_constraint
+WHERE conrelid = 'rule.scope'::regclass
+  AND contype = 'c'
+ORDER BY conname;
+
+SELECT indexname
+FROM pg_indexes
+WHERE schemaname = 'rule'
+ORDER BY indexname;
