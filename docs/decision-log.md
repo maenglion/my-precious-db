@@ -196,3 +196,96 @@ jungche는 v0.2/v0.3 설계안에 그 시행착오의 결론이 이미 압축되
 
 **대가:** signature 생성 규칙이 residual_type별로 달라야 함.
 지금은 scope 실패만. MISSING_FACT/PARSER 등은 별도 규칙 필요.
+
+
+## DL-009 — Ontology는 residual 뒤에만 존재할 수 있다 (DB 강제)
+
+**배경:** v0.2 §13.4, §0-B2는 "AI가 법률을 만들지 않는다",
+"Ontology를 hot path에 넣지 않는다"를 문서 원칙으로 적었다.
+원칙만으로는 코드가 어길 수 있다.
+
+**결정:** `review.ontology_candidate` 스키마 제약으로 강제.
+- `residual_id uuid NOT NULL REFERENCES review.residual_item`
+  → 정상 판정 경로에서는 candidate 생성 불가 (DB가 거부)
+- `candidate_type CHECK IN ('ALIAS','CLASS','MAPPING','SCOPE')`
+  → 자유텍스트 증식 방지
+- `status CHECK IN ('PENDING','APPROVED','REJECTED','DEFERRED')`
+  → 4상태 외 없음
+
+**결과:**
+
+
+## DL-010 — RULE_COVERAGE 승격은 한 단계 더 검증 필요 (해결: 013i, 2026-09-16)
+
+
+**상태:** 이번 티켓(013g)에서는 v0.2 §12.3 그대로 구현. 정교화는 별도 티켓으로 미룸.
+
+**GPT Project 지적 (2026-09-15):**
+> RULE_COVERAGE는 UNMAPPED_SOURCE_TYPE보다 조심해야 한다.
+> 이것도 무조건 승격이 아니라:
+> ```
+> RULE_COVERAGE 발생
+>   ↓
+> source/parser/version 문제 아님 확인
+>   ↓
+> 같은 패턴 반복
+>   ↓
+> 기존 scope/rule로 설명 불가
+>   ↓
+> candidate
+> ```
+> 여기까지 가야 한다.
+
+**문제:** 현재 `promote_residuals`는 `RULE_COVERAGE`와 `UNMAPPED_SOURCE_TYPE`을 동등 취급.
+- `residual_type = RULE_COVERAGE`
+- `occurrence_count >= 3`
+- `status = ACCUMULATING`
+- 미승격
+
+이 4개 조건만 만족하면 무조건 candidate 생성.
+
+**왜 위험한가:**
+- `RULE_COVERAGE`가 실제로는 **source/parser/version 문제** 때문에 생겼을 수 있음
+- 그걸 ontology candidate로 승격하면 → **DB 스키마 문제를 ontology 문제로 오진**
+- v0.2 §12.3 원문도 "**RULE_COVERAGE 중에서도 반복 패턴이 확인된 것만**" 이라고 조건을 달아놨음
+- 지금 코드는 "반복"만 보고 "패턴 확인"은 안 함
+
+**미래 티켓 (013h or later) 스코프:**
+1. `RULE_COVERAGE` 발생 시 같은 scope/source에 대해:
+   - `LAW_VERSION_CONFLICT` 동시 발생 여부 확인
+   - `PARSER` residual 동시 발생 여부 확인
+   - 해당 scope의 `source_block_id` 파싱 실패 이력 확인
+2. 위 셋 다 아니고 **순수 coverage 부족**일 때만 승격
+3. 이를 위한 별도 residual 컬럼 또는 조회 함수
+
+**당장의 대응:**
+- 지금은 DL-010을 남기고 진행
+- 실제로 `RULE_COVERAGE`가 반복되는 케이스가 나오면 그때 013h로 처리
+- 그때까지는 "일단 다 승격"이 정책
+
+**대가:**
+- 정책이 v0.2 §12.3보다 느슨함
+- 하지만 현재 시드 데이터에 `RULE_COVERAGE`가 반복될 만한 케이스가 없음
+- 실제 데이터로 드러나면 그때 조임
+
+**기억 장치:**
+- 이 DL이 저장소에 있으므로 다음 세션에서도 참조 가능
+- 관련: v0.2 §12.3, DL-009 (ontology는 residual 뒤에만)
+- 다음 티켓 후보: 013h (RULE_COVERAGE 정교화), 또는 실제 데이터 들어온 뒤
+
+
+**해결 (Ticket 013i, 2026-09-16):**
+`src/review/promotion.py`의 `promote_residuals`에 gate 추가.
+- `_has_conflicting_residual(conn, facility_id, conflict_types=...)` 헬퍼
+- `RULE_COVERAGE` 승격 전 같은 facility에 대해 확인:
+  - `PARSER`
+  - `LAW_VERSION_CONFLICT`
+  - `SOURCE_CONFLICT`
+- 위 중 하나라도 `ACCUMULATING` 상태면 승격 skip
+- `UNMAPPED_SOURCE_TYPE`은 gate 없음 (기존 규칙 유지)
+
+**회귀 테스트 4개 추가:**
+- `test_rule_coverage_promoted_when_no_conflict`
+- `test_rule_coverage_blocked_by_parser_residual`
+- `test_rule_coverage_blocked_by_law_version_conflict`
+- `test_other_promotable_types_not_gated`
