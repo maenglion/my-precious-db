@@ -341,3 +341,37 @@ RULE_COVERAGE→SCOPE)하여 클래스 폭발 위험. 네 통찰:
 - promotion.py 자동 확정 로직 제거
 
 **Related**: DL-007, DL-011, v0.2 §13.4, §14, §24
+
+## DL-012: Branch Diagnosis & Growth Origin
+
+**Date**: 2026-09-16
+**Status**: Accepted
+**Context**: 013k 이후. `promotion.py`가 residual_type →
+candidate_type을 자동 확정 (`UNMAPPED_SOURCE_TYPE→CLASS`,
+`RULE_COVERAGE→SCOPE`)하여 클래스 폭발 위험. 조문 성장은
+위층(정책·입법 목적, 축 개설)과 아래층(사고·집행·현장 예외,
+항·호·목·단서·별표)에서 원인이 다름.
+
+**Decisions**:
+1. residual_type은 "증상", candidate_type은 "진단".
+   자동 확정 금지.
+2. candidate_type = {ALIAS, MAPPING, CLASS, SCOPE, NONE}.
+   비용 순서: ALIAS < MAPPING < CLASS < SCOPE.
+   싼 것으로 해결 가능하면 비싼 것으로 승격 금지.
+3. `NO_ONTOLOGY_CHANGE` 공식 허용. AI가 "새로 만들지 마"
+   라고 답할 권리를 프롬프트 스키마에 명시 (013k 후속).
+4. 승격 gate = 반복성 + 판정 가치(decision_gain).
+   - 분리 시 다른 rule set / EXCLUDE / threshold / scope?
+   - 전부 NO면 alias/mapping으로 종결.
+5. growth_origin = {TOP_DOWN, BOTTOM_UP}.
+   - BOTTOM_UP: residual 경로 (현장·사고·집행)
+   - TOP_DOWN: 법령 개정 diff 경로 (Phase 2/3 이후)
+6. 92-class 선제 확정 금지. backbone + 자가확장.
+7. 자동 승격 금지 원칙(v0.2 §13.4) 재확인.
+
+**Consequences**:
+- 013L: Branch Diagnosis 구현
+- promotion.py `_CANDIDATE_TYPE_MAP` 제거
+- Phase 2/3 Law Adapter: law diff → TOP_DOWN 경로 신설
+
+**Related**: DL-007, DL-010, DL-011, v0.2 §13.4, §14, §24
