@@ -285,13 +285,13 @@ def _persist_residual(
         cur.execute(
             """
             INSERT INTO review.residual_item
-                (facility_id, outcome.assessment_id, residual_type,
-             signature, Jsonb(details)),
+                (facility_id, assessment_id, residual_type,
+                 signature, details, status)
             VALUES (%s, %s, %s, %s, %s, 'ACCUMULATING')
             RETURNING residual_id
             """,
             (facility_id, outcome.assessment_id, residual_type,
-             signature, details),
+             signature, Jsonb(details)),
         )
         outcome.residual_id = str(cur.fetchone()["residual_id"])
     conn.commit()
