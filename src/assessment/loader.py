@@ -1,6 +1,8 @@
 """DB -> Expression tree 로더.
 
-rule.rule + rule.expression을 읽어 Node 트리로 변환.
+rule.expression row -> Node 트리.
+expr_id는 AND/OR/NOT/PREDICATE 모든 노드에 보존된다.
+children 정렬은 (sort_order, expr_id) — eval의 _sorted와 동일 키.
 """
 
 from __future__ import annotations
@@ -22,10 +24,6 @@ class LoadedRule:
 
 
 def rows_to_tree(rows: list[dict]) -> Node:
-    """rule.expression 행 목록 -> Node 트리.
-
-    rows는 하나의 rule에 속한 모든 expression.
-    """
     if not rows:
         raise ValueError("no expression rows")
 
@@ -37,7 +35,10 @@ def rows_to_tree(rows: list[dict]) -> Node:
         children.setdefault(parent_key, []).append(expr_id)
 
     for key in children:
-        children[key].sort(key=lambda eid: by_id[eid].get("sort_order", 0))
+        # eval의 _sorted와 동일 키: (sort_order, expr_id)
+        children[key].sort(
+            key=lambda eid: (by_id[eid].get("sort_order", 0), eid)
+        )
 
     roots = children.get(None, [])
     if len(roots) != 1:
@@ -48,6 +49,7 @@ def rows_to_tree(rows: list[dict]) -> Node:
     def build(expr_id: str) -> Node:
         row = by_id[expr_id]
         expr_type = row["expr_type"]
+        sort_order = row.get("sort_order", 0)
         if expr_type == "PREDICATE":
             pred = Predicate(
                 fact_key=row["fact_key"],
@@ -56,9 +58,9 @@ def rows_to_tree(rows: list[dict]) -> Node:
                 unit=row.get("unit"),
             )
             return Node(expr_type="PREDICATE", predicate=pred,
-                        sort_order=row.get("sort_order", 0))
+                        sort_order=sort_order, expr_id=expr_id)
         child_nodes = [build(cid) for cid in children.get(expr_id, [])]
         return Node(expr_type=expr_type, children=child_nodes,
-                    sort_order=row.get("sort_order", 0))
+                    sort_order=sort_order, expr_id=expr_id)
 
     return build(roots[0])
