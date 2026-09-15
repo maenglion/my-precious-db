@@ -282,16 +282,46 @@ def _persist_residual(
         "scope_id": outcome.scope.scope_id,
     }
     with conn.cursor() as cur:
+        # 같은 (facility_id, signature)가 ACCUMULATING 상태로 있으면 누적
         cur.execute(
             """
-            INSERT INTO review.residual_item
-                (facility_id, assessment_id, residual_type,
-                 signature, details, status)
-            VALUES (%s, %s, %s, %s, %s, 'ACCUMULATING')
-            RETURNING residual_id
+            SELECT residual_id
+            FROM review.residual_item
+            WHERE facility_id = %s
+              AND signature = %s
+              AND status = 'ACCUMULATING'
+            LIMIT 1
             """,
-            (facility_id, outcome.assessment_id, residual_type,
-             signature, Jsonb(details)),
+            (facility_id, signature),
         )
-        outcome.residual_id = str(cur.fetchone()["residual_id"])
+        existing = cur.fetchone()
+
+        if existing is not None:
+            # 누적
+            cur.execute(
+                """
+                UPDATE review.residual_item
+                SET occurrence_count = occurrence_count + 1,
+                    last_seen_at = now(),
+                    assessment_id = %s,
+                    details = %s
+                WHERE residual_id = %s
+                """,
+                (outcome.assessment_id, Jsonb(details),
+                 existing["residual_id"]),
+            )
+            outcome.residual_id = str(existing["residual_id"])
+        else:
+            cur.execute(
+                """
+                INSERT INTO review.residual_item
+                    (facility_id, assessment_id, residual_type,
+                     signature, details, status)
+                VALUES (%s, %s, %s, %s, %s, 'ACCUMULATING')
+                RETURNING residual_id
+                """,
+                (facility_id, outcome.assessment_id, residual_type,
+                 signature, Jsonb(details)),
+            )
+            outcome.residual_id = str(cur.fetchone()["residual_id"])
     conn.commit()

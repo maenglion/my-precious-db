@@ -114,3 +114,65 @@ def _make_facility_without_scope(db_conn):
         )
     db_conn.commit()
     return fac_id
+
+class TestResidualAccumulation:
+    def test_same_signature_increments_count(self, db_conn, seeded):
+        fac_id = _make_facility_without_scope(db_conn)
+
+        # 1회차
+        out1 = run_assessment(db_conn, fac_id, AS_OF, persist=True)
+        assert out1.residual_id is not None
+        rows1 = _fetch_residuals(db_conn)
+        assert len(rows1) == 1
+        assert rows1[0]["occurrence_count"] == 1
+
+        # 2회차 — 같은 시설, 같은 원인
+        out2 = run_assessment(db_conn, fac_id, AS_OF, persist=True)
+        assert out2.residual_id == out1.residual_id  # 같은 row 갱신
+        rows2 = _fetch_residuals(db_conn)
+        assert len(rows2) == 1  # 새 row 안 생김
+        assert rows2[0]["occurrence_count"] == 2
+
+        # 3회차
+        run_assessment(db_conn, fac_id, AS_OF, persist=True)
+        rows3 = _fetch_residuals(db_conn)
+        assert len(rows3) == 1
+        assert rows3[0]["occurrence_count"] == 3
+
+    def test_different_facilities_same_signature_separate_rows(self, db_conn, seeded):
+        fac_a = _make_facility_without_scope(db_conn)
+        fac_b = _make_facility_without_scope(db_conn)
+
+        run_assessment(db_conn, fac_a, AS_OF, persist=True)
+        run_assessment(db_conn, fac_b, AS_OF, persist=True)
+
+        rows = _fetch_residuals(db_conn)
+        # 시설이 다르면 각자 row (시설별 카운트)
+        assert len(rows) == 2
+        assert all(r["occurrence_count"] == 1 for r in rows)
+
+    def test_last_seen_at_updates_on_accumulate(self, db_conn, seeded):
+        fac_id = _make_facility_without_scope(db_conn)
+
+        run_assessment(db_conn, fac_id, AS_OF, persist=True)
+        with db_conn.cursor() as cur:
+            cur.execute(
+                "SELECT first_seen_at, last_seen_at FROM review.residual_item"
+            )
+            first = cur.fetchone()
+        assert first["first_seen_at"] == first["last_seen_at"]
+
+        # 시간 간격 만들기
+        import time
+        time.sleep(1.1)
+
+        run_assessment(db_conn, fac_id, AS_OF, persist=True)
+        with db_conn.cursor() as cur:
+            cur.execute(
+                "SELECT first_seen_at, last_seen_at, occurrence_count "
+                "FROM review.residual_item"
+            )
+            second = cur.fetchone()
+        assert second["occurrence_count"] == 2
+        assert second["first_seen_at"] == first["first_seen_at"]  # 안 바뀜
+        assert second["last_seen_at"] > first["last_seen_at"]     # 갱신됨
